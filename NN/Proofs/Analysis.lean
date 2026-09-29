@@ -6,6 +6,7 @@ Authors: TorchLean Team
 
 module
 
+public import NN.Proofs.Analysis.Clarke
 public import NN.Proofs.Analysis.Dropout
 public import NN.Proofs.Analysis.Fft
 public import NN.Proofs.Analysis.FftBridge

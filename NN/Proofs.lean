@@ -18,6 +18,7 @@ public import NN.Proofs.Autograd.FDeriv.Elementwise
 public import NN.Proofs.Autograd.FDeriv.HardMaskedAttention
 public import NN.Proofs.Autograd.FDeriv.HardMaskedSoftmax
 public import NN.Proofs.Autograd.FDeriv.MlpMse
+public import NN.Proofs.Autograd.FDeriv.MlpMseNonsmooth
 public import NN.Proofs.Autograd.FDeriv.OpSpec
 public import NN.Proofs.Autograd.FDeriv.Params
 public import NN.Proofs.Autograd.FDeriv.PrimitiveArithmetic
