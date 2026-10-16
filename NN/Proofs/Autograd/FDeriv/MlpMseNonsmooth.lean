@@ -9,6 +9,7 @@ module
 public import NN.Proofs.Analysis.Clarke
 public import NN.Proofs.Autograd.FDeriv.MlpMse
 public import Mathlib.Analysis.InnerProductSpace.ProdL2
+public import Mathlib.Analysis.Calculus.ContDiff.RCLike
 
 /-!
 # Generalized backpropagation for a two-layer ReLU MLP
@@ -30,7 +31,7 @@ not identify a floating-point runtime execution with a Clarke gradient.
 @[expose] public section
 
 open Filter
-open scoped Gradient Topology
+open scoped Gradient Topology NNReal
 
 namespace Proofs
 namespace Autograd
@@ -181,7 +182,8 @@ private theorem gradient_hiddenBiasObjective_eq_backprop_of_noKinks
       ((matCLM (toMatrix W2)).adjoint (mseGrad (y W1 b1 W2 b2 x) t))
   exact grad_b1_mse W1 b1 W2 b2 x t h
 
-private def matVecBilinear {m n : Nat} : Mat m n →L[ℝ] Vec n →L[ℝ] Vec m := by
+/-- Matrix-vector evaluation as a continuous bilinear map on the parameter Hilbert spaces. -/
+def matVecBilinear {m n : Nat} : Mat m n →L[ℝ] Vec n →L[ℝ] Vec m := by
   let L : Mat m n →ₗ[ℝ] (Vec n →L[ℝ] Vec m) :=
     { toFun := fun W ↦ matCLM (toMatrix W)
       map_add' := by
@@ -558,6 +560,68 @@ theorem mlpMseBackprop_mem_clarkeGradient
     (mlpMseBackprop_isLimitingGradient W1 b1 W2 b2 x t)
 
 end
+
+/-- Coordinatewise ReLU is nonexpansive for TorchLean's Euclidean norm. -/
+theorem lipschitzWith_reluVec {n : Nat} : LipschitzWith 1 (reluVec (n := n)) := by
+  apply LipschitzWith.of_dist_le_mul
+  intro a b
+  simp only [NNReal.coe_one, one_mul, dist_eq_norm]
+  apply (sq_le_sq₀ (norm_nonneg _) (norm_nonneg _)).1
+  simp only [EuclideanSpace.real_norm_sq_eq]
+  apply Finset.sum_le_sum
+  intro i _
+  have h := (LipschitzWith.id.max (LipschitzWith.const (0 : ℝ))).dist_le_mul (a i) (b i)
+  have h' : |reluVec a i - reluVec b i| ≤ |a i - b i| := by
+    by_cases ha : a i = 0 <;> by_cases hb : b i = 0 <;>
+      simp_all [reluVec, reluFun, euclideanEquiv, Activation.Math.reluSpec, Real.dist_eq]
+  simpa only [PiLp.sub_apply, Real.norm_eq_abs, sq_abs] using
+    (sq_le_sq₀ (abs_nonneg _) (abs_nonneg _)).2 h'
+
+variable {inDim hidDim outDim : Nat}
+
+/-- The joint parameter objective is locally Lipschitz, also at ReLU kinks. -/
+theorem locallyLipschitz_mlpMseObjective (x : Vec inDim) (t : Vec outDim) :
+    LocallyLipschitz (mlpMseObjective (hidDim := hidDim) x t) := by
+  let P := MlpMseParameters inDim hidDim outDim
+  let w1 : P →L[ℝ] Mat hidDim inDim := WithLp.fstL 2 ℝ _ _
+  let tail : P →L[ℝ] WithLp 2 (Vec hidDim × WithLp 2 (Mat outDim hidDim × Vec outDim)) :=
+    WithLp.sndL 2 ℝ _ _
+  let b1 : P →L[ℝ] Vec hidDim := (WithLp.fstL 2 ℝ _ _).comp tail
+  let out : P →L[ℝ] WithLp 2 (Mat outDim hidDim × Vec outDim) :=
+    (WithLp.sndL 2 ℝ _ _).comp tail
+  let w2 : P →L[ℝ] Mat outDim hidDim := (WithLp.fstL 2 ℝ _ _).comp out
+  let b2 : P →L[ℝ] Vec outDim := (WithLp.sndL 2 ℝ _ _).comp out
+  let z : P →L[ℝ] Vec hidDim := (matApplyLin x).comp w1 + b1
+  have ha : LocallyLipschitz (fun p : P ↦ reluVec (z p)) :=
+    lipschitzWith_reluVec.locallyLipschitz.comp z.lipschitzWith.locallyLipschitz
+  have hmul : ContDiff ℝ 1 (fun q : Mat outDim hidDim × Vec hidDim ↦
+      matVecBilinear q.1 q.2) :=
+    (matVecBilinear.contDiff.comp contDiff_fst).clm_apply contDiff_snd
+  have hy0 := hmul.locallyLipschitz.comp (w2.lipschitzWith.locallyLipschitz.prodMk ha)
+  have hadd : ContDiff ℝ 1 (fun q : Vec outDim × Vec outDim ↦ q.1 + q.2) :=
+    contDiff_fst.add contDiff_snd
+  have hy := hadd.locallyLipschitz.comp (hy0.prodMk b2.lipschitzWith.locallyLipschitz)
+  have hmse : ContDiff ℝ 1 (mse t) :=
+    contDiff_const.mul ((contDiff_id.sub contDiff_const).norm_sq (𝕜 := ℝ))
+  convert hmse.locallyLipschitz.comp hy using 1
+  funext p
+  simp [mlpMseObjective, mlpVecMat, affineMat, affine, z, w1, b1, tail, w2, b2, out,
+    matVecBilinear_apply, ContinuousLinearMap.comp_apply, WithLp.fstL, WithLp.sndL,
+    matApplyLin, matApplyLM, matCLM]
+  rfl
+
+/-- One local constant controls every generalized direction and every Clarke gradient. -/
+theorem mlpMseObjective_clarke_bounds
+    (x : Vec inDim) (t : Vec outDim) (p : MlpMseParameters inDim hidDim outDim) :
+    ∃ K : ℝ≥0,
+      (∀ v, ((-((K : ℝ) * ‖v‖) : ℝ) : EReal) ≤
+          clarkeDirectionalDerivative (mlpMseObjective x t) p v ∧
+        clarkeDirectionalDerivative (mlpMseObjective x t) p v ≤
+          (((K : ℝ) * ‖v‖ : ℝ) : EReal)) ∧
+      (∀ g ∈ clarkeGradient (mlpMseObjective x t) p, ‖g‖ ≤ (K : ℝ)) := by
+  obtain ⟨K, s, hs, hF⟩ := locallyLipschitz_mlpMseObjective x t p
+  exact ⟨K, fun v ↦ clarkeDirectionalDerivative_bounds_of_lipschitzOnWith hs hF v,
+    fun _ hg ↦ norm_le_of_mem_clarkeGradient hs hF hg⟩
 
 end Autograd
 end Proofs

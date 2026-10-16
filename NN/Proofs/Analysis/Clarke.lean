@@ -12,6 +12,8 @@ public import Mathlib.Topology.Order.LiminfLimsup
 import Mathlib.Analysis.Calculus.Deriv.Slope
 import Mathlib.Analysis.Calculus.LineDeriv.Basic
 import Mathlib.Topology.Instances.EReal.Lemmas
+public import Mathlib.Analysis.Convex.Hull
+public import Mathlib.Topology.MetricSpace.Lipschitz
 
 /-!
 # Clarke generalized gradients
@@ -28,7 +30,7 @@ generalized gradient as a convex hull of reachable gradients.
 @[expose] public section
 
 open Filter
-open scoped Gradient Topology
+open scoped Gradient Topology NNReal
 
 namespace Proofs
 
@@ -133,5 +135,100 @@ theorem isLimitingGradient_mem_clarkeGradient
       ((nhds x) ×ˢ (nhdsWithin (0 : ℝ) (Set.Ioi 0))) Q :=
     hcluster_seq.of_comp hp
   exact hcluster.le_limsup
+
+omit [CompleteSpace E] in
+/-- The Clarke set is convex, including when a directional value is infinite. -/
+theorem convex_clarkeGradient (F : E → ℝ) (x : E) :
+    Convex ℝ (clarkeGradient F x) := by
+  rw [show clarkeGradient F x = ⋂ v : E,
+      {g : E | ((inner ℝ g v : ℝ) : EReal) ≤ clarkeDirectionalDerivative F x v} by
+    ext g
+    simp [clarkeGradient]]
+  apply convex_iInter
+  intro v
+  cases h : clarkeDirectionalDerivative F x v using EReal.rec with
+  | bot =>
+      convert (convex_empty : Convex ℝ (∅ : Set E)) using 1
+      ext g
+      simp
+  | coe r =>
+      intro a ha b hb s t hs ht hst
+      simp only [Set.mem_ofPred_eq, EReal.coe_le_coe_iff] at ha hb ⊢
+      rw [inner_add_left, inner_smul_left, inner_smul_left]
+      simp only [starRingEnd_apply, star_trivial]
+      calc
+        s * inner ℝ a v + t * inner ℝ b v ≤ s * r + t * r :=
+          add_le_add (mul_le_mul_of_nonneg_left ha hs)
+            (mul_le_mul_of_nonneg_left hb ht)
+        _ = r := by rw [← add_mul, hst, one_mul]
+  | top =>
+      convert (convex_univ : Convex ℝ (Set.univ : Set E)) using 1
+      ext g
+      simp
+
+/-- Convexifying reachable gradients preserves the directional inequalities. -/
+theorem convexHull_isLimitingGradient_subset_clarkeGradient (F : E → ℝ) (x : E) :
+    convexHull ℝ {g | IsLimitingGradient F x g} ⊆ clarkeGradient F x := by
+  exact convexHull_min (fun _ hg ↦ isLimitingGradient_mem_clarkeGradient hg)
+    (convex_clarkeGradient F x)
+
+omit [CompleteSpace E] in
+/-- A local Lipschitz constant bounds both sides of Clarke's directional derivative. -/
+theorem clarkeDirectionalDerivative_bounds_of_lipschitzOnWith
+    {F : E → ℝ} {x : E} {K : ℝ≥0} {s : Set E}
+    (hs : s ∈ nhds x) (hF : LipschitzOnWith K F s) (v : E) :
+    ((-((K : ℝ) * ‖v‖) : ℝ) : EReal) ≤ clarkeDirectionalDerivative F x v ∧
+      clarkeDirectionalDerivative F x v ≤ (((K : ℝ) * ‖v‖ : ℝ) : EReal) := by
+  let l := (nhds x) ×ˢ (nhdsWithin (0 : ℝ) (Set.Ioi 0))
+  have hy : Tendsto (fun p : E × ℝ ↦ p.1) l (nhds x) := tendsto_fst
+  have ht : Tendsto (fun p : E × ℝ ↦ p.2) l (nhds (0 : ℝ)) :=
+    tendsto_snd.mono_right nhdsWithin_le_nhds
+  have hshift : Tendsto (fun p : E × ℝ ↦ p.1 + p.2 • v) l (nhds x) := by
+    simpa using hy.add (ht.smul_const v)
+  have hpos : ∀ᶠ p : E × ℝ in l, 0 < p.2 :=
+    tendsto_snd.eventually self_mem_nhdsWithin
+  have hbounds : ∀ᶠ p : E × ℝ in l,
+      -((K : ℝ) * ‖v‖) ≤ (F (p.1 + p.2 • v) - F p.1) / p.2 ∧
+        (F (p.1 + p.2 • v) - F p.1) / p.2 ≤ (K : ℝ) * ‖v‖ := by
+    filter_upwards [hy.eventually hs, hshift.eventually hs, hpos] with p hp hq ht
+    have hb := hF.dist_le_mul _ hq _ hp
+    rw [Real.dist_eq, dist_eq_norm, add_sub_cancel_left, norm_smul,
+      Real.norm_eq_abs, abs_of_pos ht] at hb
+    have ha : |(F (p.1 + p.2 • v) - F p.1) / p.2| ≤ (K : ℝ) * ‖v‖ := by
+      rw [abs_div, abs_of_pos ht, div_le_iff₀ ht]
+      nlinarith [hb]
+    exact abs_le.1 ha
+  constructor
+  · exact le_trans (le_liminf_of_le (h := hbounds.mono fun _ hp ↦ EReal.coe_le_coe hp.1))
+      (liminf_le_limsup (u := fun p : E × ℝ ↦
+        (((F (p.1 + p.2 • v) - F p.1) / p.2 : ℝ) : EReal)) (f := l))
+  · exact limsup_le_of_le (h := hbounds.mono fun _ hp ↦ EReal.coe_le_coe hp.2)
+
+omit [CompleteSpace E] in
+/-- Every Clarke gradient has norm at most any Lipschitz constant valid near the point. -/
+theorem norm_le_of_mem_clarkeGradient
+    {F : E → ℝ} {x g : E} {K : ℝ≥0} {s : Set E}
+    (hs : s ∈ nhds x) (hF : LipschitzOnWith K F s)
+    (hg : g ∈ clarkeGradient F x) : ‖g‖ ≤ (K : ℝ) := by
+  have h := (hg g).trans (clarkeDirectionalDerivative_bounds_of_lipschitzOnWith hs hF g).2
+  have hreal : inner ℝ g g ≤ (K : ℝ) * ‖g‖ := EReal.coe_le_coe_iff.1 h
+  rw [real_inner_self_eq_norm_sq] at hreal
+  nlinarith [norm_nonneg g, K.coe_nonneg]
+
+/-- The directional construction recovers the ordinary directional derivative of the identity. -/
+theorem clarkeDirectionalDerivative_id (x v : ℝ) :
+    clarkeDirectionalDerivative id x v = (v : EReal) := by
+  have hpos : ∀ᶠ p : ℝ × ℝ in
+      (nhds x) ×ˢ (nhdsWithin (0 : ℝ) (Set.Ioi 0)), 0 < p.2 :=
+    tendsto_snd.eventually self_mem_nhdsWithin
+  unfold clarkeDirectionalDerivative
+  calc
+    _ = limsup (fun _ : ℝ × ℝ ↦ (v : EReal))
+        ((nhds x) ×ˢ (nhdsWithin (0 : ℝ) (Set.Ioi 0))) := by
+      apply limsup_congr
+      filter_upwards [hpos] with p hp
+      congr 1
+      simp [smul_eq_mul, hp.ne']
+    _ = _ := limsup_const _
 
 end Proofs
