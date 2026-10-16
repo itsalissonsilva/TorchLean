@@ -623,5 +623,17 @@ theorem mlpMseObjective_clarke_bounds
   exact ⟨K, fun v ↦ clarkeDirectionalDerivative_bounds_of_lipschitzOnWith hs hF v,
     fun _ hg ↦ norm_le_of_mem_clarkeGradient hs hF hg⟩
 
+/-- At every parameter, the selected vector belongs to a nonempty compact convex Clarke set. -/
+theorem mlpMseObjective_clarke_geometry
+    (x : Vec inDim) (t : Vec outDim) (p : MlpMseParameters inDim hidDim outDim) :
+    (clarkeGradient (mlpMseObjective x t) p).Nonempty ∧
+      IsCompact (clarkeGradient (mlpMseObjective x t) p) ∧
+      Convex ℝ (clarkeGradient (mlpMseObjective x t) p) := by
+  obtain ⟨K, s, hs, hF⟩ := locallyLipschitz_mlpMseObjective x t p
+  refine ⟨?_, isCompact_clarkeGradient_of_lipschitzOnWith hs hF,
+    convex_clarkeGradient _ _⟩
+  obtain ⟨W1, b1, W2, b2⟩ := p
+  exact ⟨_, mlpMseBackprop_mem_clarkeGradient W1 b1 W2 b2 x t⟩
+
 end Autograd
 end Proofs

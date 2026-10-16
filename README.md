@@ -15,7 +15,8 @@ This fork's `proofs/clarke-relu-backprop` branch adds three proof modules:
 `NN.Proofs.Analysis.Clarke`, `NN.Proofs.Autograd.FDeriv.MlpMseNonsmooth`, and
 `NN.Proofs.Autograd.Tape.Ops.MlpMseNonsmooth`. They prove reachable-gradient and
 Clarke membership for all four parameter blocks of the real affine–ReLU–affine
-MLP/MSE objective, local Lipschitz bounds, and agreement of a fused specification
+MLP/MSE objective, nonempty compact convex Clarke sets, local Lipschitz bounds,
+and agreement of a fused specification
 tape with the parameter formulas at every point. The tape uses a selected chain
 linearization and its adjoint; lowering it to a graph of runtime primitives and
 floating-point correctness are outside these theorems. The full Clarke

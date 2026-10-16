@@ -14,6 +14,7 @@ import Mathlib.Analysis.Calculus.LineDeriv.Basic
 import Mathlib.Topology.Instances.EReal.Lemmas
 public import Mathlib.Analysis.Convex.Hull
 public import Mathlib.Topology.MetricSpace.Lipschitz
+public import Mathlib.Topology.MetricSpace.ProperSpace
 
 /-!
 # Clarke generalized gradients
@@ -22,9 +23,9 @@ This module defines limiting gradients and Clarke's upper generalized directiona
 real-valued functions on real Hilbert spaces. The directional derivative is extended-real-valued,
 so the definitions do not silently assume local Lipschitz continuity.
 
-The main theorem proves directly that every limiting gradient satisfies Clarke's directional
-inequalities. It does not use, or claim, the finite-dimensional representation of the Clarke
-generalized gradient as a convex hull of reachable gradients.
+Every limiting gradient satisfies Clarke's directional inequalities. The resulting set is closed
+and convex; a neighborhood Lipschitz constant bounds its elements, and in a proper space this
+gives compactness. These properties are proved directly from the directional construction.
 -/
 
 @[expose] public section
@@ -166,6 +167,17 @@ theorem convex_clarkeGradient (F : E → ℝ) (x : E) :
       ext g
       simp
 
+omit [CompleteSpace E] in
+/-- The directional support inequalities define a closed set. -/
+theorem isClosed_clarkeGradient (F : E → ℝ) (x : E) :
+    IsClosed (clarkeGradient F x) := by
+  rw [show clarkeGradient F x = ⋂ v : E,
+      {g : E | ((inner ℝ g v : ℝ) : EReal) ≤ clarkeDirectionalDerivative F x v} by
+    ext g
+    simp [clarkeGradient]]
+  exact isClosed_iInter fun _ ↦ isClosed_le
+    (continuous_coe_real_ereal.comp (continuous_id.inner continuous_const)) continuous_const
+
 /-- Convexifying reachable gradients preserves the directional inequalities. -/
 theorem convexHull_isLimitingGradient_subset_clarkeGradient (F : E → ℝ) (x : E) :
     convexHull ℝ {g | IsLimitingGradient F x g} ⊆ clarkeGradient F x := by
@@ -214,6 +226,18 @@ theorem norm_le_of_mem_clarkeGradient
   have hreal : inner ℝ g g ≤ (K : ℝ) * ‖g‖ := EReal.coe_le_coe_iff.1 h
   rw [real_inner_self_eq_norm_sq] at hreal
   nlinarith [norm_nonneg g, K.coe_nonneg]
+
+omit [CompleteSpace E] in
+/-- A neighborhood Lipschitz bound makes the Clarke set compact in a proper space. -/
+theorem isCompact_clarkeGradient_of_lipschitzOnWith [ProperSpace E]
+    {F : E → ℝ} {x : E} {K : ℝ≥0} {s : Set E}
+    (hs : s ∈ nhds x) (hF : LipschitzOnWith K F s) :
+    IsCompact (clarkeGradient F x) := by
+  apply (isCompact_closedBall (0 : E) (K : ℝ)).of_isClosed_subset
+    (isClosed_clarkeGradient F x)
+  intro g hg
+  simpa only [Metric.mem_closedBall, dist_zero_right] using
+    norm_le_of_mem_clarkeGradient hs hF hg
 
 /-- The directional construction recovers the ordinary directional derivative of the identity. -/
 theorem clarkeDirectionalDerivative_id (x v : ℝ) :
