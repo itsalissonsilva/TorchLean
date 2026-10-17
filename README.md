@@ -11,10 +11,12 @@ attached to each path.
 
 ## Installation
 
-This fork's `proofs/clarke-relu-backprop` branch adds four proof modules:
+This fork's `proofs/clarke-relu-backprop` branch adds six proof modules:
 `NN.Proofs.Analysis.Clarke`, `NN.Proofs.Autograd.FDeriv.MlpMseNonsmooth`,
 `NN.Proofs.Autograd.Tape.Ops.MlpMseNonsmooth`, and
-`NN.Proofs.Autograd.Tape.Ops.MlpMsePrimitive`. They prove reachable-gradient and
+`NN.Proofs.Autograd.Tape.Ops.MlpMsePrimitive`,
+`NN.Proofs.Autograd.FDeriv.DeepRelu`, and
+`NN.Proofs.Autograd.FDeriv.MlpMseBatch`. They prove reachable-gradient and
 Clarke membership for all four parameter blocks of the real affine–ReLU–affine
 MLP/MSE objective, nonempty compact convex Clarke sets, local Lipschitz bounds,
 and agreement of both a fused specification tape and a six-node primitive tape
@@ -24,6 +26,16 @@ its parameter output satisfies the same Clarke postcondition. These are
 exact-real tapes, not floating-point correctness theorems. The full Clarke
 representation theorem is not assumed. To check this extension alone, run
 `lake build NN.Proofs.Autograd.Tape.Ops.MlpMsePrimitive`.
+
+`DeepRelu` proves recursive backward correctness and limiting-gradient/Clarke
+membership for every finite list of hidden widths, using independent biases
+at each layer. Its singleton-width case reduces to the original MLP definitions.
+`MlpMseBatch` proves the finite-batch mean result for shared parameters of the
+one-hidden-layer model, using one common perturbation and gradient convergence.
+Check these with `lake build NN.Proofs.Autograd.FDeriv.DeepRelu` and
+`lake build NN.Proofs.Autograd.FDeriv.MlpMseBatch`. The arbitrary-depth analytic
+result and the primitive tape lowering have different scopes; the latter still
+covers the six-node one-hidden-layer graph.
 
 ```bash
 git clone https://github.com/lean-dojo/TorchLean.git

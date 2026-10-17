@@ -54,17 +54,17 @@ private def hiddenBiasBackprop
   (reluDerivCLM (z1 W1 b1 x))
     ((matCLM (toMatrix W2)).adjoint (mseGrad (y W1 b1 W2 b2 x) t))
 
-private def negativeKinkDirection (z : Vec hidDim) : Vec hidDim :=
+def negativeKinkDirection (z : Vec hidDim) : Vec hidDim :=
   WithLp.toLp 2 fun i ↦ if z i = 0 then -1 else 0
 
 @[simp] private theorem negativeKinkDirection_apply
     (z : Vec hidDim) (i : Fin hidDim) :
     negativeKinkDirection z i = if z i = 0 then -1 else 0 := rfl
 
-private def negativeKinkPerturbation (z : Vec hidDim) (ε : ℝ) : Vec hidDim :=
+def negativeKinkPerturbation (z : Vec hidDim) (ε : ℝ) : Vec hidDim :=
   ε • negativeKinkDirection z
 
-private def perturbHiddenBias
+def perturbHiddenBias
     (W1 : Mat hidDim inDim) (x : Vec inDim) (b1 : Vec hidDim) (ε : ℝ) : Vec hidDim :=
   b1 + negativeKinkPerturbation (z1 W1 b1 x) ε
 
@@ -88,7 +88,7 @@ private theorem z1_perturbHiddenBias_apply
   rw [hz]
   by_cases h : z1 W1 b1 x i = 0 <;> simp [h]
 
-private theorem z1_perturbHiddenBias_ne_zero
+theorem z1_perturbHiddenBias_ne_zero
     (W1 : Mat hidDim inDim) (x : Vec inDim) (b1 : Vec hidDim) {ε : ℝ}
     (hε : 0 < ε) :
     ∀ i : Fin hidDim, z1 W1 (perturbHiddenBias W1 x b1 ε) x i ≠ 0 := by
@@ -101,7 +101,7 @@ private theorem z1_perturbHiddenBias_ne_zero
 @[simp] private theorem reluVec_apply (z : Vec hidDim) (i : Fin hidDim) :
     reluVec z i = Activation.Math.reluSpec (z i) := rfl
 
-private theorem reluVec_z1_perturbHiddenBias
+theorem reluVec_z1_perturbHiddenBias
     (W1 : Mat hidDim inDim) (x : Vec inDim) (b1 : Vec hidDim) {ε : ℝ}
     (hε : 0 < ε) :
     reluVec (z1 W1 (perturbHiddenBias W1 x b1 ε) x) =
@@ -113,7 +113,7 @@ private theorem reluVec_z1_perturbHiddenBias
     simp [h, Activation.Math.reluSpec_eq_max, hneg]
   · simp [h]
 
-private theorem reluDerivCLM_z1_perturbHiddenBias
+theorem reluDerivCLM_z1_perturbHiddenBias
     (W1 : Mat hidDim inDim) (x : Vec inDim) (b1 : Vec hidDim) {ε : ℝ}
     (hε : 0 < ε) :
     reluDerivCLM (z1 W1 (perturbHiddenBias W1 x b1 ε) x) =
@@ -133,12 +133,12 @@ private theorem y_perturbHiddenBias
   simpa [y, mlpVecMat, z1] using congrArg (affineMat W2 b2)
     (reluVec_z1_perturbHiddenBias W1 x b1 hε)
 
-private def hiddenBiasApproximants
+def hiddenBiasApproximants
     (W1 : Mat hidDim inDim) (x : Vec inDim) (b1 : Vec hidDim) :
     ℕ → Vec hidDim :=
   fun n ↦ perturbHiddenBias W1 x b1 ((1 : ℝ) / ((n : ℝ) + 1))
 
-private theorem hiddenBiasApproximants_tendsto
+theorem hiddenBiasApproximants_tendsto
     (W1 : Mat hidDim inDim) (x : Vec inDim) (b1 : Vec hidDim) :
     Tendsto (hiddenBiasApproximants W1 x b1) atTop (nhds b1) := by
   have hε : Tendsto (fun n : ℕ ↦ (1 : ℝ) / ((n : ℝ) + 1)) atTop (nhds 0) :=
@@ -149,7 +149,7 @@ private theorem hiddenBiasApproximants_tendsto
       negativeKinkDirection (z1 W1 b1 x)) atTop (nhds b1)
   simpa using hb.add (hε.smul_const (negativeKinkDirection (z1 W1 b1 x)))
 
-private theorem gradient_eq_adjoint_fderiv_one
+theorem gradient_eq_adjoint_fderiv_one
     {E : Type*} [NormedAddCommGroup E] [InnerProductSpace ℝ E] [CompleteSpace E]
     (F : E → ℝ) (u : E) :
     ∇ F u = (fderiv ℝ F u).adjoint (1 : ℝ) := by
@@ -320,7 +320,7 @@ def mlpMseBackprop
   let δ := mseGrad (y W1 b1 W2 b2 x) t
   packMlpMseParameters (outer h x) h (outer δ (a1 W1 b1 x)) δ
 
-private theorem differentiableAt_mlpMseObjective_of_noKinks
+theorem differentiableAt_mlpMseObjective_of_noKinks
     (W1 : Mat hidDim inDim) (b1 : Vec hidDim)
     (W2 : Mat outDim hidDim) (b2 : Vec outDim)
     (x : Vec inDim) (t : Vec outDim)
