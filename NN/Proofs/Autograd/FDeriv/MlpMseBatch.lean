@@ -7,6 +7,7 @@ Authors: Alisson M. Silva
 module
 
 public import NN.Proofs.Autograd.FDeriv.MlpMseNonsmooth
+public import NN.Proofs.Autograd.FDeriv.DeepRelu
 
 /-!
 # Shared-parameter finite batches
@@ -14,6 +15,8 @@ public import NN.Proofs.Autograd.FDeriv.MlpMseNonsmooth
 A single negative hidden-bias shift resolves every sample's zero preactivations.
 Unlike the single-example construction, activations need not stay constant;
 the proof uses convergence and eventual constancy of the selected masks.
+The output loss may be MSE or a differentiable scalar function whose gradient
+is continuous at each current sample output.
 -/
 
 @[expose] public section
@@ -154,6 +157,92 @@ private theorem gradient_scale {E : Type*} [NormedAddCommGroup E] [InnerProductS
     ∇ (fun q ↦ c • f q) p = c • ∇ f p := by
   rw [gradient, fderiv_fun_const_smul hf c]
   simp only [map_smul, gradient]
+
+/-- Continuous output gradients give convergence for losses other than MSE. -/
+theorem lossBackprop_tendsto {i h o : Nat} (p : MlpMseParameters i h o)
+    (x : Vec i) (ℓ : Vec o → ℝ)
+    (hc : ContinuousAt (∇ ℓ) (y p.fst p.snd.fst p.snd.snd.fst p.snd.snd.snd x)) :
+    Tendsto (fun n ↦ DeepRelu.lossBackprop [h] (approximant p n) x ℓ) atTop
+      (nhds (DeepRelu.lossBackprop [h] p x ℓ)) := by
+  let b := fun n ↦ p.snd.fst + step n • negativeOnes h
+  let a := fun n ↦ a1 p.fst (b n) x
+  let δ := fun n ↦ ∇ ℓ (y p.fst (b n) p.snd.snd.fst p.snd.snd.snd x)
+  let H := fun n ↦ reluDerivCLM (z1 p.fst p.snd.fst x)
+    ((matCLM (toMatrix p.snd.snd.fst)).adjoint (δ n))
+  have hb : Tendsto b atTop (nhds p.snd.fst) := by
+    simpa [b] using (tendsto_const_nhds (x := p.snd.fst)).add
+      (step_tendsto.smul_const (negativeOnes h))
+  have hz : Tendsto (fun n ↦ z1 p.fst (b n) x) atTop (nhds (z1 p.fst p.snd.fst x)) :=
+    tendsto_const_nhds.add hb
+  have ha : Tendsto a atTop (nhds (a1 p.fst p.snd.fst x)) :=
+    lipschitzWith_reluVec.continuous.continuousAt.tendsto.comp hz
+  have hy : Tendsto (fun n ↦ y p.fst (b n) p.snd.snd.fst p.snd.snd.snd x) atTop
+      (nhds (y p.fst p.snd.fst p.snd.snd.fst p.snd.snd.snd x)) :=
+    ((matCLM (toMatrix p.snd.snd.fst)).continuous.continuousAt.tendsto.comp ha).add_const _
+  have hδ : Tendsto δ atTop
+      (nhds (∇ ℓ (y p.fst p.snd.fst p.snd.snd.fst p.snd.snd.snd x))) := hc.tendsto.comp hy
+  have hH := (reluDerivCLM (z1 p.fst p.snd.fst x)).continuous.continuousAt.tendsto.comp
+    ((matCLM (toMatrix p.snd.snd.fst)).adjoint.continuous.continuousAt.tendsto.comp hδ)
+  have hw := (matApplyLin (m := h) x).adjoint.continuous.continuousAt.tendsto.comp hH
+  simp only [Function.comp_def, matApplyLin_adjoint_apply] at hw
+  have hv := continuous_outer.continuousAt.tendsto.comp (hδ.prodMk_nhds ha)
+  have hp := pack_tendsto hw hH hv hδ
+  apply hp.congr'
+  filter_upwards [eventually_noKinks_mask p x] with n hn
+  change packMlpMseParameters (outer (H n) x) (H n) (outer (δ n) (a n)) (δ n) = _
+  simp only [DeepRelu.lossBackprop, DeepRelu.backward, DeepRelu.forward, approximant,
+    packMlpMseParameters, WithLp.toLp_fst, WithLp.toLp_snd] at hn ⊢
+  rw [hn.2]
+  rfl
+
+/-- Mean of sample-specific scalar output losses, with the empty mean equal to zero. -/
+def lossObjective {i h o N : Nat} (x : Fin N → Vec i) (ℓ : Fin N → Vec o → ℝ)
+    (p : MlpMseParameters i h o) : ℝ :=
+  (N : ℝ)⁻¹ * ∑ k, ℓ k (DeepRelu.forward [h] p (x k))
+
+/-- Mean reverse value seeded by the sample-specific output gradients. -/
+def lossBackprop {i h o N : Nat} (p : MlpMseParameters i h o)
+    (x : Fin N → Vec i) (ℓ : Fin N → Vec o → ℝ) : MlpMseParameters i h o :=
+  (N : ℝ)⁻¹ • ∑ k, DeepRelu.lossBackprop [h] p (x k) (ℓ k)
+
+/-- The common-tail argument applies to differentiable losses with continuous output gradients. -/
+theorem lossBackprop_isLimitingGradient {i h o N : Nat} (p : MlpMseParameters i h o)
+    (x : Fin N → Vec i) (ℓ : Fin N → Vec o → ℝ)
+    (hdℓ : ∀ k, Differentiable ℝ (ℓ k))
+    (hc : ∀ k, ContinuousAt (∇ (ℓ k)) (DeepRelu.forward [h] p (x k))) :
+    IsLimitingGradient (lossObjective x ℓ) p (lossBackprop p x ℓ) := by
+  have he := eventually_all.2 fun k : Fin N ↦ eventually_noKinks_mask p (x k)
+  obtain ⟨K, hK⟩ := eventually_atTop.1 he
+  let q := fun n ↦ approximant p (n + K)
+  have hk : ∀ n k, DeepRelu.NoKinks [h] (q n) (x k) :=
+    fun n k ↦ ⟨(hK (n + K) (Nat.le_add_left K n) k).1, trivial⟩
+  have hd : ∀ n k, DifferentiableAt ℝ (fun r ↦ ℓ k (DeepRelu.forward [h] r (x k)))
+      (q n) := by
+    intro n k
+    exact (DeepRelu.hasFDerivAt_loss [h] _ (x k) (ℓ k) (hk n k) (hdℓ k _)).differentiableAt
+  have hs : ∀ n, DifferentiableAt ℝ
+      (fun r ↦ ∑ k, ℓ k (DeepRelu.forward [h] r (x k))) (q n) :=
+    fun n ↦ DifferentiableAt.fun_sum fun k _ ↦ hd n k
+  have hg : ∀ n, ∇ (lossObjective x ℓ) (q n) = lossBackprop (q n) x ℓ := by
+    intro n
+    change ∇ (fun r ↦ (N : ℝ)⁻¹ • ∑ k, ℓ k (DeepRelu.forward [h] r (x k))) (q n) = _
+    rw [gradient_scale _ _ _ (hs n), gradient_sum _ _ (hd n)]
+    exact congrArg ((N : ℝ)⁻¹ • ·) (Finset.sum_congr rfl fun k _ ↦
+      DeepRelu.gradient_loss_eq [h] _ (x k) (ℓ k) (hk n k) (hdℓ k _))
+  refine ⟨q, (approximant_tendsto p).comp (tendsto_add_atTop_nat K),
+    fun n ↦ (hs n).const_smul ((N : ℝ)⁻¹), ?_⟩
+  have hb := (tendsto_finsetSum Finset.univ
+    (fun k _ ↦ lossBackprop_tendsto p (x k) (ℓ k) (hc k))).const_smul ((N : ℝ)⁻¹)
+  exact (hb.comp (tendsto_add_atTop_nat K)).congr'
+    (Filter.Eventually.of_forall fun n ↦ (hg n).symm)
+
+/-- The finite-batch differentiable-loss reverse value satisfies Clarke's inequalities. -/
+theorem lossBackprop_mem_clarkeGradient {i h o N : Nat} (p : MlpMseParameters i h o)
+    (x : Fin N → Vec i) (ℓ : Fin N → Vec o → ℝ)
+    (hdℓ : ∀ k, Differentiable ℝ (ℓ k))
+    (hc : ∀ k, ContinuousAt (∇ (ℓ k)) (DeepRelu.forward [h] p (x k))) :
+    lossBackprop p x ℓ ∈ clarkeGradient (lossObjective x ℓ) p :=
+  isLimitingGradient_mem_clarkeGradient (lossBackprop_isLimitingGradient p x ℓ hdℓ hc)
 
 /-- Mean MSE over a finite batch, sharing the entire parameter tuple. -/
 def objective {i h o N : Nat} (x : Fin N → Vec i) (t : Fin N → Vec o)

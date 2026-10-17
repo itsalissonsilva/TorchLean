@@ -13,6 +13,8 @@ public import NN.Proofs.Autograd.FDeriv.MlpMseNonsmooth
 
 The list of hidden widths determines a recursively bundled Hilbert parameter
 space. Every hidden layer uses TorchLean's selected ReLU; the final layer is affine.
+Joint forward evaluation is locally Lipschitz. A scalar loss differentiable at the
+current output admits a constant-gradient witness for the full parameter reverse value.
 -/
 
 @[expose] public section
@@ -312,6 +314,134 @@ theorem backprop_mem_clarkeGradient {i o : Nat} (hs : List Nat)
     (p : Parameters i o hs) (x : Vec i) (t : Vec o) :
     backprop hs p x t ∈ clarkeGradient (objective hs x t) p :=
   isLimitingGradient_mem_clarkeGradient (backprop_isLimitingGradient hs p x t)
+
+/-- Joint forward evaluation is locally Lipschitz, including at hidden kinks. -/
+theorem locallyLipschitz_forward {i o : Nat} (hs : List Nat) :
+    LocallyLipschitz (fun q : Joint i o hs ↦ forward hs q.fst q.snd) := by
+  induction hs generalizing i with
+  | nil =>
+      let pL : Joint i o [] →L[ℝ] Parameters i o [] := WithLp.fstL 2 ℝ _ _
+      let wL : Joint i o [] →L[ℝ] Mat o i := (WithLp.fstL 2 ℝ _ _).comp pL
+      let bL : Joint i o [] →L[ℝ] Vec o := (WithLp.sndL 2 ℝ _ _).comp pL
+      let xL : Joint i o [] →L[ℝ] Vec i := WithLp.sndL 2 ℝ _ _
+      have h : ContDiff ℝ 1 (fun q : Joint i o [] ↦ forward [] q.fst q.snd) := by
+        exact (((matVecBilinear (m := o) (n := i)).contDiff.comp wL.contDiff).clm_apply
+          xL.contDiff).add bL.contDiff
+      exact h.locallyLipschitz
+  | cons h hs ih =>
+      let pL : Joint i o (h :: hs) →L[ℝ] Parameters i o (h :: hs) := WithLp.fstL 2 ℝ _ _
+      let rL := (WithLp.sndL 2 ℝ _ _).comp pL
+      let wL := (WithLp.fstL 2 ℝ _ _).comp pL
+      let bL := (WithLp.fstL 2 ℝ _ _).comp rL
+      let tL := (WithLp.sndL 2 ℝ _ _).comp rL
+      let xL : Joint i o (h :: hs) →L[ℝ] Vec i := WithLp.sndL 2 ℝ _ _
+      have hz : ContDiff ℝ 1 (fun q ↦ z1 (wL q) (bL q) (xL q)) :=
+        (((matVecBilinear (m := h) (n := i)).contDiff.comp wL.contDiff).clm_apply
+          xL.contDiff).add bL.contDiff
+      have ha := lipschitzWith_reluVec.locallyLipschitz.comp hz.locallyLipschitz
+      have ht : LocallyLipschitz (fun q : Joint i o (h :: hs) ↦
+          WithLp.toLp 2 (q.fst.snd.snd,
+            reluVec (z1 q.fst.fst q.fst.snd.fst q.snd))) :=
+        (WithLp.prodContinuousLinearEquiv 2 ℝ (Parameters h o hs)
+          (Vec h)).symm.toContinuousLinearMap.lipschitzWith.locallyLipschitz.comp
+          (tL.lipschitzWith.locallyLipschitz.prodMk ha)
+      have hf := (ih (i := h)).comp ht
+      simpa only [Function.comp_def, WithLp.toLp_fst, WithLp.toLp_snd, forward] using hf
+
+/-- A locally Lipschitz output loss preserves local Lipschitz continuity in parameters. -/
+theorem locallyLipschitz_loss {i o : Nat} (hs : List Nat) (x : Vec i)
+    {ℓ : Vec o → ℝ} (hℓ : LocallyLipschitz ℓ) :
+    LocallyLipschitz (fun p : Parameters i o hs ↦ ℓ (forward hs p x)) := by
+  have hi : LocallyLipschitz (fun p : Parameters i o hs ↦ WithLp.toLp 2 (p, x)) :=
+    (WithLp.prodContinuousLinearEquiv 2 ℝ (Parameters i o hs)
+      (Vec i)).symm.toContinuousLinearMap.lipschitzWith.locallyLipschitz.comp
+        ((ContinuousLinearMap.id ℝ (Parameters i o hs)).lipschitzWith.locallyLipschitz.prodMk
+          (show LocallyLipschitz (fun _ : Parameters i o hs ↦ x) from
+            (LipschitzWith.const x).locallyLipschitz))
+  have hf := hℓ.comp ((locallyLipschitz_forward (i := i) (o := o) hs).comp hi)
+  simpa only [Function.comp_def, WithLp.toLp_fst, WithLp.toLp_snd] using hf
+
+/-- Local Lipschitz continuity of MSE for arbitrary finite depth. -/
+theorem locallyLipschitz_objective {i o : Nat} (hs : List Nat) (x : Vec i) (t : Vec o) :
+    LocallyLipschitz (objective hs x t) := by
+  have hmse : ContDiff ℝ 1 (mse t) :=
+    contDiff_const.mul ((contDiff_id.sub contDiff_const).norm_sq (𝕜 := ℝ))
+  exact locallyLipschitz_loss hs x hmse.locallyLipschitz
+
+/-- The deep MSE Clarke set is nonempty, compact, and convex at every parameter. -/
+theorem objective_clarke_geometry {i o : Nat} (hs : List Nat)
+    (p : Parameters i o hs) (x : Vec i) (t : Vec o) :
+    (clarkeGradient (objective hs x t) p).Nonempty ∧
+      IsCompact (clarkeGradient (objective hs x t) p) ∧
+      Convex ℝ (clarkeGradient (objective hs x t) p) := by
+  obtain ⟨K, s, hs', hF⟩ := locallyLipschitz_objective hs x t p
+  exact ⟨⟨_, backprop_mem_clarkeGradient hs p x t⟩,
+    isCompact_clarkeGradient_of_lipschitzOnWith hs' hF, convex_clarkeGradient _ _⟩
+
+/-- Selected reverse propagation seeded by the gradient of an arbitrary scalar output loss. -/
+def lossBackprop {i o : Nat} (hs : List Nat) (p : Parameters i o hs)
+    (x : Vec i) (ℓ : Vec o → ℝ) : Parameters i o hs :=
+  (backward hs p x (∇ ℓ (forward hs p x))).fst
+
+/-- Compose the smooth network derivative with a loss differentiable at its output. -/
+theorem hasFDerivAt_loss {i o : Nat} (hs : List Nat) (p : Parameters i o hs)
+    (x : Vec i) (ℓ : Vec o → ℝ) (hk : NoKinks hs p x)
+    (hℓ : DifferentiableAt ℝ ℓ (forward hs p x)) :
+    HasFDerivAt (fun q ↦ ℓ (forward hs q x))
+      (((fderiv ℝ ℓ (forward hs p x)).comp (selected hs p x)).comp
+        (pairL (ContinuousLinearMap.id ℝ _) 0)) p := by
+  have hi := hasFDerivAt_pairL (hasFDerivAt_id p) (hasFDerivAt_const x p)
+  exact hℓ.hasFDerivAt.comp p ((hasFDerivAt_forward hs p x hk).comp p hi)
+
+/-- Smooth parameter-gradient correctness only requires differentiability at the output. -/
+theorem gradient_loss_eq {i o : Nat} (hs : List Nat) (p : Parameters i o hs)
+    (x : Vec i) (ℓ : Vec o → ℝ) (hk : NoKinks hs p x)
+    (hℓ : DifferentiableAt ℝ ℓ (forward hs p x)) :
+    ∇ (fun q ↦ ℓ (forward hs q x)) p = lossBackprop hs p x ℓ := by
+  rw [gradient_eq_adjoint_fderiv_one, (hasFDerivAt_loss hs p x ℓ hk hℓ).fderiv]
+  apply ext_inner_left ℝ
+  intro d
+  rw [ContinuousLinearMap.adjoint_inner_right]
+  have H := backward_inner hs p x (WithLp.toLp 2 (d, 0)) (∇ ℓ (forward hs p x))
+  rw [← toDual_gradient (f := ℓ)]
+  simpa [lossBackprop, ContinuousLinearMap.comp_apply, WithLp.prod_inner_apply,
+    Real.inner_apply, real_inner_comm] using H
+
+/-- Reverse propagation for a differentiable loss has the same invariant witness. -/
+theorem lossBackprop_isLimitingGradient {i o : Nat} (hs : List Nat)
+    (p : Parameters i o hs) (x : Vec i) (ℓ : Vec o → ℝ)
+    (hℓ : DifferentiableAt ℝ ℓ (forward hs p x)) :
+    IsLimitingGradient (fun q ↦ ℓ (forward hs q x)) p (lossBackprop hs p x ℓ) := by
+  have hb : ∀ ε, 0 < ε → lossBackprop hs (perturb hs p x ε) x ℓ = lossBackprop hs p x ℓ := by
+    intro ε hε
+    apply ext_inner_left ℝ
+    intro d
+    have H := backward_inner hs (perturb hs p x ε) x (WithLp.toLp 2 (d, 0))
+      (∇ ℓ (forward hs p x))
+    rw [selected_perturb hs p x hε, backward_inner] at H
+    simpa [lossBackprop, forward_perturb hs p x hε, WithLp.prod_inner_apply] using H.symm
+  refine ⟨fun n ↦ perturb hs p x ((1 : ℝ) / ((n : ℝ) + 1)),
+    perturb_tendsto hs p x, ?_, ?_⟩
+  · intro n
+    have hε : (0 : ℝ) < 1 / ((n : ℝ) + 1) := by positivity
+    have hl : DifferentiableAt ℝ ℓ
+        (forward hs (perturb hs p x (1 / ((n : ℝ) + 1))) x) := by
+      rwa [forward_perturb hs p x hε]
+    exact (hasFDerivAt_loss hs _ x ℓ (noKinks_perturb hs p x hε) hl).differentiableAt
+  · apply tendsto_const_nhds.congr'
+    exact Filter.Eventually.of_forall fun n ↦ by
+      have hε : (0 : ℝ) < 1 / ((n : ℝ) + 1) := by positivity
+      change lossBackprop hs p x ℓ = ∇ (fun q ↦ ℓ (forward hs q x))
+        (perturb hs p x (1 / ((n : ℝ) + 1)))
+      rw [gradient_loss_eq hs _ x ℓ (noKinks_perturb hs p x hε)
+        (by rwa [forward_perturb hs p x hε]), hb _ hε]
+
+/-- The differentiable-loss extension satisfies Clarke's directional inequalities. -/
+theorem lossBackprop_mem_clarkeGradient {i o : Nat} (hs : List Nat)
+    (p : Parameters i o hs) (x : Vec i) (ℓ : Vec o → ℝ)
+    (hℓ : DifferentiableAt ℝ ℓ (forward hs p x)) :
+    lossBackprop hs p x ℓ ∈ clarkeGradient (fun q ↦ ℓ (forward hs q x)) p :=
+  isLimitingGradient_mem_clarkeGradient (lossBackprop_isLimitingGradient hs p x ℓ hℓ)
 
 /-- One hidden layer recovers TorchLean's original objective definition. -/
 theorem objective_singleton {i h o : Nat} (p : MlpMseParameters i h o)
