@@ -11,17 +11,19 @@ attached to each path.
 
 ## Installation
 
-This fork's `proofs/clarke-relu-backprop` branch adds three proof modules:
-`NN.Proofs.Analysis.Clarke`, `NN.Proofs.Autograd.FDeriv.MlpMseNonsmooth`, and
-`NN.Proofs.Autograd.Tape.Ops.MlpMseNonsmooth`. They prove reachable-gradient and
+This fork's `proofs/clarke-relu-backprop` branch adds four proof modules:
+`NN.Proofs.Analysis.Clarke`, `NN.Proofs.Autograd.FDeriv.MlpMseNonsmooth`,
+`NN.Proofs.Autograd.Tape.Ops.MlpMseNonsmooth`, and
+`NN.Proofs.Autograd.Tape.Ops.MlpMsePrimitive`. They prove reachable-gradient and
 Clarke membership for all four parameter blocks of the real affine–ReLU–affine
 MLP/MSE objective, nonempty compact convex Clarke sets, local Lipschitz bounds,
-and agreement of a fused specification
-tape with the parameter formulas at every point. The tape uses a selected chain
-linearization and its adjoint; lowering it to a graph of runtime primitives and
-floating-point correctness are outside these theorems. The full Clarke
+and agreement of both a fused specification tape and a six-node primitive tape
+with the parameter formulas at every point. The primitive tape composes the
+existing `matmul`, `add`, `relu`, and `mseLoss` nodes, including their VJPs;
+its parameter output satisfies the same Clarke postcondition. These are
+exact-real tapes, not floating-point correctness theorems. The full Clarke
 representation theorem is not assumed. To check this extension alone, run
-`lake build NN.Proofs.Autograd.Tape.Ops.MlpMseNonsmooth`.
+`lake build NN.Proofs.Autograd.Tape.Ops.MlpMsePrimitive`.
 
 ```bash
 git clone https://github.com/lean-dojo/TorchLean.git

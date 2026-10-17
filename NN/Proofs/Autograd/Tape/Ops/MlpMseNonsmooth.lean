@@ -50,7 +50,8 @@ def mlpMseSelectedLinearization (x : Vec i) (t : Vec o) (p : MlpMseParameters i 
       ((reluDerivCLM z).comp ((matApplyLin x).comp w1 + b1)) + b2
   exact ((2 / (o : ℝ)) • innerSL ℝ (y p.fst p.snd.fst p.snd.snd.fst p.snd.snd.snd x - t)).comp dy
 
-private theorem selectedLinearization_apply (x : Vec i) (t : Vec o)
+/-- Coordinate expansion of the selected joint linearization. -/
+theorem selectedLinearization_apply (x : Vec i) (t : Vec o)
     (p d : MlpMseParameters i h o) :
     mlpMseSelectedLinearization x t p d =
       inner ℝ (mseGrad (y p.fst p.snd.fst p.snd.snd.fst p.snd.snd.snd x) t)

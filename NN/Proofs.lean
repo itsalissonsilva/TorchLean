@@ -42,6 +42,7 @@ public import NN.Proofs.Autograd.Tape.Ops.Attention.SpecBridge
 public import NN.Proofs.Autograd.Tape.Ops.Conv.FDeriv
 public import NN.Proofs.Autograd.Tape.Ops.Embedding.GatherRows
 public import NN.Proofs.Autograd.Tape.Ops.MlpMseNonsmooth
+public import NN.Proofs.Autograd.Tape.Ops.MlpMsePrimitive
 public import NN.Proofs.Autograd.Tape.Ops.Norm.BatchNorm
 public import NN.Proofs.Autograd.Tape.Ops.Norm.LayerNorm
 public import NN.Proofs.Autograd.Tape.Ops.Norm.LayerNormBounds
