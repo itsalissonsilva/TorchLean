@@ -290,7 +290,7 @@ theorem backprop_perturb {i o : Nat} (hs : List Nat)
   rw [← lossLinearization_adjoint_one, ← lossLinearization_adjoint_one,
     lossLinearization_perturb hs p x t hε]
 
-/-- Generalized backpropagation for every finite list of hidden widths, without a no-kinks premise. -/
+/-- Generalized backpropagation at every parameter for any finite list of hidden widths. -/
 theorem backprop_isLimitingGradient {i o : Nat} (hs : List Nat)
     (p : Parameters i o hs) (x : Vec i) (t : Vec o) :
     IsLimitingGradient (objective hs x t) p (backprop hs p x t) := by
